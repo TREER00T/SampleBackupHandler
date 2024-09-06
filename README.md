@@ -44,6 +44,7 @@ sudo apt-get install cron
 | MONGODB_PASSWORD     | String | false    | MongoDB password                                           |
 | MONGODB_PORT         | Number | false    | MongoDB port                                               |
 | MONGODB_DOCKER_NAME  | String | false    | Choosing custom MongoDB docker container name              |
+| PROJECT_NAME         | String | false    | Choosing project name for final backup file                |
 
 Note 📒: The mongo values are required when the mongo container exists
 
@@ -59,6 +60,7 @@ ARCHIVE_MONGODB_PATH=/data/db/test.dump
 MONGODB_USERNAME=MONGODB_USERNAME
 MONGODB_PASSWORD=MONGODB_PASSWORD
 MONGODB_PORT=MONGODB_PORT
+PROJECT_NAME=PROJECT_NAME
 ```
 
 ## Step 5: Cron Job Configuration

@@ -5,7 +5,7 @@ base_path=$(echo $1 | sed 's/.*=//')
 . "$base_path/utils/init.sh" $base_path
 
 filename=$(date +'%Y-%m-%d-%T-%N')
-backup_path="$SCRIPT_PATH/$filename.tar.gz"
+backup_path="$SCRIPT_PATH/${PROJECT_NAME:-Backup}-$filename.tar.gz"
 
 mongodb_name="${MONGODB_DOCKER_NAME:-mongo}"
 
