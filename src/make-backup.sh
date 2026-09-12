@@ -1,122 +1,110 @@
 #!/bin/bash
-set -euo pipefail
 
-base_path=$(echo "$1" | sed 's/.*=//')
+base_path="${1#*=}"
 
-# shellcheck source=/dev/null
 . "$base_path/utils/init.sh" "$base_path"
-
-# Colors in case they aren't defined
-yellow="${yellow:-\033[33m}"
-reset="${reset:-\033[0m}"
 
 filename=$(date +'%Y-%m-%d-%T-%N')
 backup_path="$SCRIPT_PATH/${PROJECT_NAME:-Backup}-$filename.tar.gz"
 
 simple_backup=true
-containers_to_restart=()
+stopped_containers=()
 
-# Helper function for tar
+# --- Helper functions ---
 create_tar() {
     echo "Creating backup archive..."
     if [ -f "$base_path/exclude.txt" ]; then
-        tar -czvf "$backup_path" --exclude-from="$base_path/exclude.txt" "$TARGET_PATH"
+        tar -czvf "$backup_path" --exclude-from="$base_path/exclude.txt" "$TARGET_PATH" || return 1
     else
-        tar -czvf "$backup_path" "$TARGET_PATH"
+        tar -czvf "$backup_path" "$TARGET_PATH" || return 1
     fi
 }
 
-# Helper function for safe restart
-restart_containers() {
-    for c in "${containers_to_restart[@]}"; do
-        echo "Starting container: $c"
-        sudo docker start "$c" || true
+stop_containers() {
+    echo "Stopping containers..."
+    for c in "$@"; do
+        [ -n "$c" ] && sudo docker stop "$c"
     done
-    containers_to_restart=()
+    sleep 5
 }
 
-# On error, restart the containers
-trap 'restart_containers' EXIT
+start_containers() {
+    echo "Starting containers..."
+    for c in "$@"; do
+        [ -n "$c" ] && sudo docker start "$c"
+    done
+}
+
+# --- Cleanup on exit ---
+cleanup() {
+    if [ ${#stopped_containers[@]} -gt 0 ]; then
+        echo "Restarting containers after interruption..."
+        start_containers "${stopped_containers[@]}"
+        stopped_containers=()
+    fi
+}
+trap cleanup EXIT
 
 # --- MongoDB Backup ---
-if [ -n "${MONGODB_DOCKER_NAME:-}" ]; then
-    mongodb_name="$MONGODB_DOCKER_NAME"
-
-    if sudo docker ps -a --format '{{.Names}}' | grep -q "^${mongodb_name}$"; then
+if [ -n "$MONGODB_DOCKER_NAME" ]; then
+    if sudo docker ps -a --format '{{.Names}}' | grep -q "^$MONGODB_DOCKER_NAME$"; then
         simple_backup=false
 
         echo "Taking MongoDB backup..."
-        sudo docker exec "$mongodb_name" mongodump \
+        sudo docker exec "$MONGODB_DOCKER_NAME" mongodump \
             --verbose \
             --archive="$ARCHIVE_MONGODB_PATH" \
             --authenticationDatabase admin \
             --port "$MONGODB_PORT" \
             -u "$MONGODB_USERNAME" \
-            -p "$MONGODB_PASSWORD"
+            -p "$MONGODB_PASSWORD" || { echo "${red}mongodump failed${reset}"; exit 1; }
 
-        echo "Stopping MongoDB container..."
-        sudo docker stop "$mongodb_name"
-        containers_to_restart+=("$mongodb_name")
+        stopped_containers=("$MONGODB_DOCKER_NAME" "$SECOND_CONTAINER")
+        stop_containers "${stopped_containers[@]}"
 
-        if [ -n "${SECOND_CONTAINER:-}" ]; then
-            sudo docker stop "$SECOND_CONTAINER"
-            containers_to_restart+=("$SECOND_CONTAINER")
-        fi
+        create_tar || { echo "${red}tar failed${reset}"; exit 1; }
 
-        sleep 5
-        create_tar
-
-        restart_containers
+        start_containers "${stopped_containers[@]}"
+        stopped_containers=()
     else
-        echo -e "${yellow}Warning: MongoDB container '$mongodb_name' not found${reset}"
+        echo "${yellow}Warning: MongoDB container '$MONGODB_DOCKER_NAME' not found${reset}"
     fi
 fi
 
 # --- MySQL + WordPress Backup ---
-if [ -n "${MYSQL_DOCKER_NAME:-}" ] && [ -n "${WORDPRESS_DOCKER_NAME:-}" ]; then
-    mysql_name="$MYSQL_DOCKER_NAME"
-    wordpress_name="$WORDPRESS_DOCKER_NAME"
-
-    # Prevent duplicate backup if MongoDB was also active
+if [ -n "$MYSQL_DOCKER_NAME" ] && [ -n "$WORDPRESS_DOCKER_NAME" ]; then
     if [ "$simple_backup" = false ]; then
-        echo -e "${yellow}Warning: Both MongoDB and MySQL backups are configured."
-        echo -e "Only one database backup per run is supported. Skipping MySQL.${reset}"
+        # fix #1: MongoDB already took the backup, skip MySQL to avoid overwrite
+        echo "${yellow}Warning: MongoDB backup already taken this run, skipping MySQL${reset}"
     else
         simple_backup=false
 
         echo "Taking MySQL backup..."
-        sudo docker exec "$mysql_name" mysqldump \
+        sudo docker exec "$MYSQL_DOCKER_NAME" mysqldump \
             -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" \
-            --databases "$MYSQL_DATABASE" > "$ARCHIVE_MYSQL_PATH"
+            --databases "$MYSQL_DATABASE" > "$ARCHIVE_MYSQL_PATH" || { echo "${red}mysqldump failed${reset}"; exit 1; }
 
-        echo "Stopping WordPress and MySQL containers..."
-        sudo docker stop "$wordpress_name"
-        containers_to_restart+=("$wordpress_name")
-        sudo docker stop "$mysql_name"
-        containers_to_restart+=("$mysql_name")
+        stopped_containers=("$WORDPRESS_DOCKER_NAME" "$MYSQL_DOCKER_NAME" "$SECOND_CONTAINER")
+        stop_containers "${stopped_containers[@]}"
 
-        if [ -n "${SECOND_CONTAINER:-}" ]; then
-            sudo docker stop "$SECOND_CONTAINER"
-            containers_to_restart+=("$SECOND_CONTAINER")
-        fi
+        create_tar || { echo "${red}tar failed${reset}"; exit 1; }
 
-        sleep 5
-        create_tar
-
-        restart_containers
+        start_containers "${stopped_containers[@]}"
+        stopped_containers=()
     fi
 fi
 
 # --- Simple backup (no database) ---
 if [ "$simple_backup" = true ]; then
-    create_tar
+    create_tar || { echo "${red}tar failed${reset}"; exit 1; }
 fi
 
 # --- Upload backup ---
-bash "$base_path/upload-file.sh" "$1" "$backup_path"
+if bash "$base_path/upload-file.sh" "$1" "$backup_path"; then
+    rm -f "$backup_path"
+else
+    echo "${red}Upload failed. Local backup kept at: $backup_path${reset}"
+    exit 1
+fi
 
-# --- Remove local backup ---
-rm -f "$backup_path"
-
-# Disable the trap since the work is done
 trap - EXIT
