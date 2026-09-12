@@ -1,52 +1,3 @@
-##!/bin/bash
-#
-#SOURCE="/home/ali/CLionProjects/test/1c63e69996535ec328aa576e52b5c4a3"
-#REMOTE_USER="root"
-#REMOTE_HOST="87.248.152.231"
-#REMOTE_PORT="9011"
-#REMOTE_PATH="/root/data"
-#FOLDER_NAME=$(basename "$SOURCE")
-#PASSWORD="YJzih7wkb1"
-#
-#echo "🔍 Creating remote directory if not exists..."
-#sshpass -p "$PASSWORD" ssh -p $REMOTE_PORT $REMOTE_USER@$REMOTE_HOST "mkdir -p $REMOTE_PATH/$FOLDER_NAME"
-#
-#echo "🔍 Getting list of files on server..."
-#sshpass -p "$PASSWORD" ssh -p $REMOTE_PORT $REMOTE_USER@$REMOTE_HOST "find $REMOTE_PATH/$FOLDER_NAME -type f 2>/dev/null | sed 's|$REMOTE_PATH/$FOLDER_NAME/||'" > /tmp/remote_files_$$.txt
-#
-#cd "$SOURCE"
-#
-#echo "📋 Checking local files..."
-#find . -type f | while read -r file; do
-#    rel_path="${file#./}"
-#
-#    if ! grep -qxF "$rel_path" /tmp/remote_files_$$.txt 2>/dev/null; then
-#        # Get directory path of the file
-#        remote_subdir=$(dirname "$rel_path")
-#
-#        # Create subdirectory on remote if needed (and not current directory)
-#        if [ "$remote_subdir" != "." ]; then
-#            echo "   📁 Creating directory: $remote_subdir"
-#            sshpass -p "$PASSWORD" ssh -p $REMOTE_PORT $REMOTE_USER@$REMOTE_HOST "mkdir -p $REMOTE_PATH/$FOLDER_NAME/$remote_subdir"
-#        fi
-#
-#        echo "⬆️ Uploading: $rel_path"
-#        sshpass -p "$PASSWORD" scp -P $REMOTE_PORT "$file" $REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH/$FOLDER_NAME/$remote_subdir/
-#
-#        if [ $? -eq 0 ]; then
-#            echo "   ✅ Success: $rel_path"
-#        else
-#            echo "   ❌ Error: $rel_path"
-#        fi
-#    else
-#        echo "   ⏭️ Skipped (exists): $rel_path"
-#    fi
-#done
-#
-#rm -f /tmp/remote_files_$$.txt
-#echo "✨ Done. New files uploaded."
-
-
 #!/bin/bash
 
 base_path=$(echo $1 | sed 's/.*=//')
@@ -78,7 +29,7 @@ if [ -n "$MONGODB_DOCKER_NAME" ]; then
         fi
 
         sleep 5
-    
+
         # Tar backup
         echo "Creating WordPress + DB backup..."
         if [ -f "$base_path/exclude.txt" ]; then
